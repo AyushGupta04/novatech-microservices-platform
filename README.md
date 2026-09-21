@@ -1,4 +1,4 @@
-# Novamart — Enterprise Microservices E-Commerce Platform
+# NovaTech — Enterprise Microservices E-Commerce Platform
 
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot 3.3.4](https://img.shields.io/badge/Spring%20Boot-3.3.4-brightgreen.svg)](https://spring.io/projects/spring-boot)
@@ -10,11 +10,13 @@
 
 An enterprise-grade, distributed e-commerce system built with Java 21, Spring Boot 3 microservices, Spring Cloud Gateway, Redis caching, MySQL 8 with Flyway schema versioning, and a high-performance React + TypeScript frontend.
 
+> 📖 **Comprehensive System Architecture, Sequence Diagrams & Live Demo Guide**: See [COMPLETE_FLOW_GUIDE.md](./COMPLETE_FLOW_GUIDE.md)
+
 ---
 
 ## 1. System Architecture
 
-Novamart follows a decoupled, database-per-service microservices pattern. Each domain maintains its own independent schema, transactional boundary, and data integrity guarantees.
+NovaTech follows a decoupled, database-per-service microservices pattern. Each domain maintains its own independent schema, transactional boundary, and data integrity guarantees.
 
 ### Architecture Diagram (Mermaid)
 
