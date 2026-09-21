@@ -1,0 +1,10 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: api-gateway-test
+
+jwt:
+  secret: EnterpriseEcommerceSecretKeyMustBeAtLeast256BitsLongForHMACSHA256!
+  expiration-ms: 3600000
