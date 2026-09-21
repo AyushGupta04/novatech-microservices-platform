@@ -1,32 +1,34 @@
-# Enterprise E-Commerce Platform — Complete System Flow & Architecture Guide
+# Enterprise E-Commerce Platform — Complete Architecture, HLD, LLD & Execution Guide
 
-This document provides a comprehensive, production-grade architectural guide and end-to-end execution flow reference for the **Novamart Enterprise E-Commerce Platform**.
+This document provides a production-grade architectural specification, High-Level Design (HLD), Low-Level Design (LLD), system design principles, and end-to-end execution flow reference for the **Enterprise Microservices E-Commerce Platform**.
 
 ---
 
-## 1. System Topology & Architecture
+## 1. High-Level Design (HLD) & System Architecture
 
-The platform is designed following strict microservice principles: **Zero Monolithic Shared Databases**, **Centralized Ingress API Gateway**, **Stateless JWT Security**, and **Isolated Domain Responsibilities**.
+The platform follows modern cloud-native microservice principles: **Zero Monolithic Shared Databases**, **Centralized Ingress Gateway**, **Stateless JWT Security**, and **Domain-Driven Bounded Contexts**.
+
+### 1.1 Architecture Topology
 
 ```mermaid
 graph TD
-    Client["Browser / Frontend SPA (React + TypeScript)<br/>Port 3000"]
-    Gateway["API Gateway (Spring Cloud Gateway / Netty)<br/>Port 8080"]
+    Client["Client Layer<br/>React 18 + TypeScript + Vite SPA<br/>(Port 3000 / Nginx)"]
+    Gateway["API Gateway (Spring Cloud Gateway / Netty)<br/>Port 8080<br/>• Central Ingress Routing<br/>• JWT Validation & Header Enrichment<br/>• Global CORS & Rate Limiting"]
 
-    subgraph Microservices ["Enterprise Microservices Tier"]
-        Auth["Auth Service (Port 8081)<br/>Spring Security + JWT"]
-        Product["Product Service (Port 8082)<br/>Catalog & Categories"]
-        Inventory["Inventory Service (Port 8083)<br/>Stock & Atomic Reservations"]
-        Cart["Cart Service (Port 8084)<br/>Active Shopping Sessions"]
-        Order["Order Service (Port 8085)<br/>Order Placement & State Machine"]
+    subgraph Microservices ["Microservices Layer (Java 21 / Spring Boot 3)"]
+        Auth["Auth Service (:8081)<br/>• BCrypt Hashing<br/>• JWT Generation & Refresh<br/>• RBAC (USER / ADMIN)"]
+        Product["Product Service (:8082)<br/>• Catalog & Categories<br/>• Redis Read-Through Cache<br/>• SKU Authoritative Specs"]
+        Inventory["Inventory Service (:8083)<br/>• Atomic Stock Reservations<br/>• Restock Release Mechanism<br/>• Concurrency Protection"]
+        Cart["Cart Service (:8084)<br/>• Active User Cart Sessions<br/>• Snapshot Price Locking<br/>• Transient Line Items"]
+        Order["Order Service (:8085)<br/>• Distributed Checkout Saga<br/>• Order State Machine<br/>• Audit Status History"]
     end
 
     subgraph DataTier ["Data & Caching Tier"]
-        MySQL[("MySQL 8 Database Container<br/>Port 3306")]
-        Redis[("Redis 7 Alpine Cache<br/>Port 6379")]
+        MySQL[("MySQL 8 Database Container (:3306)<br/>5 Logical Isolated Schemas:<br/>auth_db · product_db · inventory_db<br/>cart_db · order_db")]
+        Redis[("Redis 7 Alpine Cache (:6379)<br/>Distributed In-Memory Cache<br/>Product Serialization + TTL")]
     end
 
-    Client -->|HTTP / REST| Gateway
+    Client -->|HTTP / REST (JSON)| Gateway
     Gateway -->|/api/v1/auth/**| Auth
     Gateway -->|/api/v1/products/**, /categories/**| Product
     Gateway -->|/api/v1/inventory/**| Inventory
@@ -35,52 +37,105 @@ graph TD
 
     Product <-->|Read / Write Distributed Cache| Redis
     
-    Order -.->|Inter-Service REST (Port 8082)| Product
-    Order -.->|Inter-Service REST (Port 8083)| Inventory
-    Order -.->|Inter-Service REST (Port 8084)| Cart
-    Cart -.->|Inter-Service REST (Port 8082)| Product
-    Cart -.->|Inter-Service REST (Port 8083)| Inventory
+    Order -.->|Internal REST| Product
+    Order -.->|Internal REST| Inventory
+    Order -.->|Internal REST| Cart
+    Cart -.->|Internal REST| Product
+    Cart -.->|Internal REST| Inventory
 
-    Auth -->|Flyway / JPA| MySQL
-    Product -->|Flyway / JPA| MySQL
-    Inventory -->|Flyway / JPA| MySQL
-    Cart -->|Flyway / JPA| MySQL
-    Order -->|Flyway / JPA| MySQL
+    Auth -->|JPA / Flyway| MySQL
+    Product -->|JPA / Flyway| MySQL
+    Inventory -->|JPA / Flyway| MySQL
+    Cart -->|JPA / Flyway| MySQL
+    Order -->|JPA / Flyway| MySQL
+```
+
+### 1.2 Core Architectural Principles & Trade-offs
+1. **Database-per-Service Pattern**: Each microservice exclusively owns its schema. Direct cross-database joins or foreign keys across service boundaries are strictly forbidden. This ensures independent schema migrations and zero blast radius during updates.
+2. **Shared-Nothing Asynchronous Ingress**: The API Gateway runs on Spring Cloud Gateway with Project Reactor / Netty, handling thousands of concurrent client connections without thread-per-request blocking.
+3. **Decoupled Inter-Service Communication**: Microservices communicate over standard REST contracts using internal `RestTemplate` / HTTP client calls with explicit timeouts and header forwarding (`X-User-Id`, `X-User-Roles`).
+4. **Distributed Caching (Cache-Aside Pattern)**: Product queries prioritize Redis (`products::{id}`). On cache misses, data is read from MySQL, hydrated into Redis with a 10-minute TTL, and serialized using Jackson's `JavaTimeModule` for instant sub-millisecond retrieval.
+5. **Data Consistency & Compensating Transactions**: The checkout process coordinates distributed actions:
+   - Verify cart items $\rightarrow$ Atomically reserve stock $\rightarrow$ Persist order $\rightarrow$ Clear user cart.
+   - If an order is subsequently cancelled, a compensating transaction automatically triggers an inventory release.
+
+---
+
+## 2. Low-Level Design (LLD) & Design Patterns Implemented
+
+The platform adheres to clean code standards, SOLID principles, and proven object-oriented design patterns:
+
+### 2.1 Software Design Patterns
+
+| Pattern | Implementation in Codebase | Technical Benefit |
+| :--- | :--- | :--- |
+| **API Gateway Pattern** | `api-gateway` (`ApiGatewayApplication.java`, Netty routes) | Consolidates routing, SSL termination, CORS policies, and token validation into a single secure perimeter. |
+| **Facade & Orchestration Pattern** | `OrderServiceImpl.java` in `order-service` | Hides the complexity of coordinating Cart retrieval, Inventory stock reservation, Order persistence, and Cart clearing behind a single `placeOrder()` API. |
+| **Finite State Machine (FSM) Pattern** | `OrderStatus.java` in `order-service` | Enforces deterministic lifecycle transitions (`PENDING` $\rightarrow$ `CONFIRMED` $\rightarrow$ `PROCESSING` $\rightarrow$ `SHIPPED` $\rightarrow$ `DELIVERED`). Restricts cancellation to cancellable states. |
+| **Filter / Interceptor Pattern** | `JwtAuthenticationFilter.java` across all services | Intercepts inbound HTTP requests, decodes HMAC-SHA256 JWT claims, and populates `SecurityContextHolder` without database lookups. |
+| **Repository Pattern** | Spring Data JPA Repositories (`ProductRepository`, `InventoryRepository`, etc.) | Decouples business logic from persistence technologies, allowing pluggable queries and transaction boundaries. |
+| **DTO & Builder Pattern** | Lombok `@Builder` in `common-lib` DTOs (`ProductDto`, `OrderDto`, `CartDto`) | Ensures immutability during cross-network transport and prevents domain model leakage. |
+| **Atomic Concurrency Protection** | `InventoryServiceImpl.java` transactional reservation | Prevents race conditions and overselling by validating `availableQuantity >= requestedQuantity` under database transaction locks. |
+| **Global Exception Envelope Pattern** | `@RestControllerAdvice` (`GlobalExceptionHandler.java`) | Enforces a standardized RFC-compliant JSON response wrapper (`ApiResponse<T>`) across all microservices. |
+
+### 2.2 Standard API Envelope Contract
+
+Every microservice returns responses enveloped in a uniform structure:
+
+```json
+{
+  "success": true,
+  "message": "Operation completed successfully",
+  "data": { ... },
+  "timestamp": "2026-09-21T14:30:00.000Z"
+}
 ```
 
 ---
 
-## 2. Infrastructure & Port Mapping
+## 3. Infrastructure & Port Mapping
 
 | Service Name | Container Name | Host Port | Internal Port | Runtime Technology | Purpose |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Frontend** | `ecommerce-frontend` | `3000` | `80` | Nginx + React 18 + Vite | Customer Storefront & Admin Portal |
-| **API Gateway** | `api-gateway` | `8080` | `8080` | Spring WebFlux / Netty | Ingress Routing, CORS, JWT Ingress Validation |
+| **Frontend SPA** | `ecommerce-frontend` | `3000` | `80` | Nginx + React 18 + Vite | Customer Storefront & Admin Control Center |
+| **API Gateway** | `api-gateway` | `8080` | `8080` | Spring Cloud Gateway (Netty) | Ingress Routing, CORS, Ingress Security |
 | **Auth Service** | `auth-service` | `8081` | `8081` | Spring Boot 3 + Tomcat | User Registration, Login, Token Refresh |
 | **Product Service** | `product-service` | `8082` | `8082` | Spring Boot 3 + Tomcat | Catalog Management, Categories, Redis Cache |
-| **Inventory Service** | `inventory-service` | `8083` | `8083` | Spring Boot 3 + Tomcat | Real-time Stock, Reservations, Restock |
-| **Cart Service** | `cart-service` | `8084` | `8084` | Spring Boot 3 + Tomcat | Shopping Cart Session Management |
-| **Order Service** | `order-service` | `8085` | `8085` | Spring Boot 3 + Tomcat | Order Orchestration, State Machine |
-| **MySQL Database** | `ecommerce-mysql` | `3306` | `3306` | MySQL 8.0 Official | 5 Isolated Database Schemas |
-| **Redis Cache** | `ecommerce-redis` | `6379` | `6379` | Redis 7 Alpine | Distributed High-Performance Caching |
+| **Inventory Service** | `inventory-service` | `8083` | `8083` | Spring Boot 3 + Tomcat | Stock Quantities, Atomic Reservations |
+| **Cart Service** | `cart-service` | `8084` | `8084` | Spring Boot 3 + Tomcat | Active Shopping Sessions & Snapshots |
+| **Order Service** | `order-service` | `8085` | `8085` | Spring Boot 3 + Tomcat | Checkout Orchestration, FSM Transitions |
+| **MySQL 8 Database** | `ecommerce-mysql` | `3306` | `3306` | MySQL 8.0 Community | 5 Isolated Database Schemas |
+| **Redis Cache** | `ecommerce-redis` | `6379` | `6379` | Redis 7 Alpine | Distributed In-Memory Key-Value Store |
 
 ---
 
-## 3. Database Isolation & Schemas
+## 4. Database Isolation & Schemas
 
-Each microservice communicates exclusively with its designated schema using credentials configured via Docker Compose:
+Each microservice communicates exclusively with its own designated schema:
 
-1. **`auth_db`**: Tables `users`, `roles`, `user_roles`. Manages credentials (BCrypt hashed) and RBAC permissions.
-2. **`product_db`**: Tables `categories`, `products`. Manages product metadata, pricing, category taxonomy, and SKU references.
-3. **`inventory_db`**: Tables `inventory_items`. Manages total quantity, reserved quantity, and atomic availability calculations (`available = quantity - reservedQuantity`).
-4. **`cart_db`**: Tables `carts`, `cart_items`. Tracks active user shopping carts with snapshot prices and SKU quantities.
-5. **`order_db`**: Tables `orders`, `order_items`, `order_status_history`. Stores immutable historical order snapshots, customer emails, shipping addresses, and chronological state machine transitions.
+1. **`auth_db`**:
+   - `users`: `id`, `email`, `password` (BCrypt), `first_name`, `last_name`, `phone`, `active`, `created_at`.
+   - `roles`: `id`, `name` (`ROLE_USER`, `ROLE_ADMIN`).
+   - `user_roles`: `user_id`, `role_id`.
+2. **`product_db`**:
+   - `categories`: `id`, `name`, `slug`, `description`, `created_at`.
+   - `products`: `id`, `sku`, `name`, `description`, `price`, `category_id`, `image_url`, `active`, `created_at`, `updated_at`.
+3. **`inventory_db`**:
+   - `inventory_items`: `id`, `sku`, `quantity` (total physical stock), `reserved_quantity`, `created_at`, `updated_at`.
+   - *Authoritative Formula*: $\text{Available Stock} = \text{quantity} - \text{reserved\_quantity}$.
+4. **`cart_db`**:
+   - `carts`: `id`, `user_id`, `created_at`, `updated_at`.
+   - `cart_items`: `id`, `cart_id`, `product_id`, `sku`, `quantity`, `unit_price`, `created_at`.
+5. **`order_db`**:
+   - `orders`: `id`, `order_number`, `user_id`, `total_amount`, `status`, `shipping_address`, `contact_phone`, `created_at`, `updated_at`.
+   - `order_items`: `id`, `order_id`, `product_id`, `sku`, `product_name`, `quantity`, `unit_price`, `subtotal`.
+   - `order_status_history`: `id`, `order_id`, `from_status`, `to_status`, `notes`, `created_at`.
 
 ---
 
-## 4. End-to-End User Journeys & Sequence Flows
+## 5. End-to-End User Journeys & Sequence Flows
 
-### Flow A: Customer Registration & Authentication
+### Flow A: Customer Authentication & Token Lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -90,25 +145,25 @@ sequenceDiagram
     participant Auth as Auth Service (:8081)
     participant DB as MySQL (auth_db)
 
-    Customer->>Gateway: POST /api/v1/auth/register (email, password, name)
-    Gateway->>Auth: Forward to /api/v1/auth/register
-    Auth->>DB: Check email duplicate & insert BCrypt hash
-    DB-->>Auth: Saved User (ROLE_USER)
-    Auth-->>Gateway: 201 Created (Success Message)
+    Customer->>Gateway: POST /api/v1/auth/register (name, email, password)
+    Gateway->>Auth: Route to Auth Service
+    Auth->>DB: Check email duplicate & insert BCrypt password
+    DB-->>Auth: Saved User Record
+    Auth-->>Gateway: 201 Created (ApiResponse)
     Gateway-->>Customer: 201 Created
 
     Customer->>Gateway: POST /api/v1/auth/login (email, password)
-    Gateway->>Auth: Forward to /api/v1/auth/login
+    Gateway->>Auth: Route to Auth Service
     Auth->>DB: Fetch user by email
     Auth->>Auth: Verify password via BCrypt.matches()
-    Auth->>Auth: Generate HMAC-SHA256 Access & Refresh JWTs
+    Auth->>Auth: Generate HMAC-SHA256 Access (15m) & Refresh (7d) JWTs
     Auth-->>Gateway: 200 OK (accessToken, refreshToken, userDetails)
     Gateway-->>Customer: 200 OK
 ```
 
 ---
 
-### Flow B: Product Browsing with Redis Caching
+### Flow B: Product Catalog Browsing with Redis Caching
 
 ```mermaid
 sequenceDiagram
@@ -121,13 +176,13 @@ sequenceDiagram
 
     Customer->>Gateway: GET /api/v1/products/1
     Gateway->>Product: Forward Request
-    Product->>Redis: Check Cache key "products::1"
-    alt Cache Hit
+    Product->>Redis: Query Key "products::1"
+    alt Cache Hit (Sub-millisecond)
         Redis-->>Product: Cached ProductDto JSON
     else Cache Miss
         Product->>DB: SELECT * FROM products WHERE id = 1
         DB-->>Product: Product Record
-        Product->>Redis: SET products::1 (TTL 10m, JavaTimeModule enabled)
+        Product->>Redis: SET products::1 (TTL 10 minutes)
     end
     Product-->>Gateway: 200 OK (ProductDto)
     Gateway-->>Customer: 200 OK
@@ -135,7 +190,7 @@ sequenceDiagram
 
 ---
 
-### Flow C: Add Item to Cart & Stock Check
+### Flow C: Add Item to Cart with Real-Time Stock Validation
 
 ```mermaid
 sequenceDiagram
@@ -147,22 +202,22 @@ sequenceDiagram
     participant Inventory as Inventory Service (:8083)
     participant DB as MySQL (cart_db)
 
-    Customer->>Gateway: POST /api/v1/cart/items (Bearer Token, productId, quantity)
-    Gateway->>Gateway: Validate JWT signature & inject X-User-Id header
-    Gateway->>Cart: Forward with Authorization & X-User-Id
-    Cart->>Product: GET /api/v1/products/{id} (Fetch authoritative SKU & Price)
-    Product-->>Cart: 200 OK (ProductDto: LAP-TITAN-16, $2499.99)
+    Customer->>Gateway: POST /api/v1/cart/items (productId: 1, quantity: 2)
+    Gateway->>Gateway: Validate Bearer JWT signature & extract userId
+    Gateway->>Cart: Forward request with Authorization & X-User-Id
+    Cart->>Product: GET /api/v1/products/1 (Fetch authoritative SKU & Price)
+    Product-->>Cart: 200 OK (SKU: LAP-TITAN-16, Price: $2499.99)
     Cart->>Inventory: POST /api/v1/inventory/check?sku=LAP-TITAN-16&quantity=2
     Inventory-->>Cart: 200 OK (inStock: true, available: 50)
     Cart->>DB: Upsert cart_items (sku, productId, unitPrice, qty=2)
     DB-->>Cart: Cart persisted
-    Cart-->>Gateway: 200 OK (CartDto)
+    Cart-->>Gateway: 200 OK (CartDto with calculated subtotal)
     Gateway-->>Customer: 200 OK
 ```
 
 ---
 
-### Flow D: Checkout, Atomic Reservation & Cart Clearing
+### Flow D: Checkout, Distributed Atomic Reservation & Cart Purge
 
 ```mermaid
 sequenceDiagram
@@ -174,16 +229,16 @@ sequenceDiagram
     participant Inventory as Inventory Service (:8083)
     participant DB as MySQL (order_db)
 
-    Customer->>Gateway: POST /api/v1/orders (Bearer Token, shippingAddress)
-    Gateway->>Order: Forward Request with X-User-Id
-    Order->>Cart: GET /api/v1/cart (Header: X-User-Id)
-    Cart-->>Order: CartDto with items (LAP-TITAN-16 x 2)
-    Order->>Inventory: POST /api/v1/inventory/reserve (List<StockReservationRequest>)
+    Customer->>Gateway: POST /api/v1/orders (shippingAddress, phone)
+    Gateway->>Order: Forward with X-User-Id header
+    Order->>Cart: GET /api/v1/cart (Internal REST)
+    Cart-->>Order: CartDto with line items (LAP-TITAN-16 x 2)
+    Order->>Inventory: POST /api/v1/inventory/reserve (sku, quantity)
     Note over Inventory: Decrements available stock from 50 -> 48
     Inventory-->>Order: 200 OK (Reservation Confirmed)
     Order->>DB: INSERT order (orderNumber: ORD-..., status: CONFIRMED)
     Order->>DB: INSERT order_status_history (PENDING -> CONFIRMED)
-    Order->>Cart: DELETE /api/v1/cart (Clear User Cart)
+    Order->>Cart: DELETE /api/v1/cart (Clear active session)
     Cart-->>Order: 200 OK (Cart Cleared)
     Order-->>Gateway: 201 Created (OrderDto)
     Gateway-->>Customer: 201 Created (Order Confirmation)
@@ -191,25 +246,25 @@ sequenceDiagram
 
 ---
 
-### Flow E: Order Cancellation & Automated Inventory Restock
+### Flow E: Order Cancellation & Compensating Restock Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Customer
+    actor Customer / Admin
     participant Gateway as API Gateway (:8080)
     participant Order as Order Service (:8085)
     participant Inventory as Inventory Service (:8083)
     participant DB as MySQL (order_db)
 
-    Customer->>Gateway: POST /api/v1/orders/{id}/cancel (Bearer Token)
+    Customer->>Gateway: POST /api/v1/orders/{id}/cancel
     Gateway->>Order: Forward with X-User-Id
     Order->>DB: Fetch order & verify user ownership
-    Note over Order: Verify current status can transition to CANCELLED
+    Note over Order: Verify current status is cancellable (CONFIRMED / PROCESSING)
     Order->>Inventory: POST /api/v1/inventory/release (List<StockReservationRequest>)
-    Note over Inventory: Increments stock from 48 back to 50
+    Note over Inventory: Restores stock from 48 back to 50
     Inventory-->>Order: 200 OK (Stock Restored)
-    Order->>DB: UPDATE order SET status = 'CANCELLED'
+    Order->>DB: UPDATE orders SET status = 'CANCELLED'
     Order->>DB: INSERT order_status_history (CONFIRMED -> CANCELLED)
     Order-->>Gateway: 200 OK (OrderDto: CANCELLED)
     Gateway-->>Customer: 200 OK
@@ -217,9 +272,9 @@ sequenceDiagram
 
 ---
 
-## 5. Order State Machine Specification
+## 6. Order State Machine Specification
 
-Orders follow a strict transition pipeline enforced by `OrderStatus.java`:
+Orders follow a deterministic Finite State Machine (FSM):
 
 ```
                  [PENDING]
@@ -228,92 +283,123 @@ Orders follow a strict transition pipeline enforced by `OrderStatus.java`:
                 [CONFIRMED] ─────────────┐
                      │                   │
                      ▼                   │
-                [PROCESSING] ────────────┼──► [CANCELLED] (Stock Restocked)
+                [PROCESSING] ────────────┼──► [CANCELLED] (Compensating Restock)
                      │                   │
                      ▼                   │
-                 [SHIPPED]               │
+                  [SHIPPED]              │
                      │                   │
                      ▼                   │
                 [DELIVERED]              │
-                     (Terminal)          (Terminal)
+                (Terminal)           (Terminal)
 ```
 
-- **Cancellable States**: `PENDING`, `CONFIRMED`, `PROCESSING`.
-- **Non-Cancellable States**: `SHIPPED`, `DELIVERED`, `CANCELLED`.
-- **Cancellation Restock Trigger**: Any cancellation automatically issues `POST /api/v1/inventory/release` for all line items.
+### State Transition Rules:
+- **`PENDING`**: Initial order draft prior to stock reservation confirmation.
+- **`CONFIRMED`**: Stock atomically reserved; order persisted; shopping cart cleared.
+- **`PROCESSING`**: Warehouse preparation underway.
+- **`SHIPPED`**: Package dispatched with logistics carrier. **Cannot be cancelled.**
+- **`DELIVERED`**: Order successfully handed to customer. Terminal state.
+- **`CANCELLED`**: Order aborted. **Compensating transaction automatically triggers stock release back to inventory.**
 
 ---
 
-## 6. Default Seeded Credentials
+## 7. Default Credentials for Live Presentations
 
-| Role | Email | Password | Granted Authorities |
-| :--- | :--- | :--- | :--- |
-| **Platform Administrator** | `admin@ecommerce.com` | `Admin123!` | `ROLE_ADMIN`, `ROLE_USER` |
-| **Standard Customer** | `user@ecommerce.com` | `User123!` | `ROLE_USER` |
+The platform includes seeded accounts ready for immediate demonstration:
 
----
+| Account Type | Email | Password | Role / Authority | Scope of Access |
+| :--- | :--- | :--- | :--- | :--- |
+| **Executive Administrator** | `admin@ecommerce.com` | `Admin123!` | `ROLE_ADMIN`, `ROLE_USER` | Admin Console, Stock Telemetry, Catalog Controls, Global Orders Stream |
+| **Standard Customer** | `user@ecommerce.com` | `User123!` | `ROLE_USER` | Storefront, Shopping Cart, Checkout, Personal Order Tracking |
 
-## 7. Complete API Endpoint Reference
-
-All endpoints are accessible via the unified API Gateway at **`http://localhost:8080`**:
-
-### Auth Service (`/api/v1/auth`)
-- `POST /api/v1/auth/register`: Register new customer account.
-- `POST /api/v1/auth/login`: Authenticate and receive JWT tokens.
-- `POST /api/v1/auth/refresh`: Exchange refresh token for new access token.
-
-### Product Service (`/api/v1/products` & `/api/v1/categories`)
-- `GET /api/v1/products`: Paginated product catalog with search, price, and category filters.
-- `GET /api/v1/products/{id}`: Detailed product snapshot (Redis-cached).
-- `POST /api/v1/products`: Create new product (Admin only).
-- `PUT /api/v1/products/{id}`: Update product details (Admin only).
-- `DELETE /api/v1/products/{id}`: Deactivate product (Admin only).
-- `GET /api/v1/categories`: List all product categories.
-- `POST /api/v1/categories`: Create category (Admin only).
-
-### Inventory Service (`/api/v1/inventory`)
-- `GET /api/v1/inventory/{sku}`: Query real-time availability for product SKU.
-- `POST /api/v1/inventory/check`: Check if requested quantity is in stock.
-- `POST /api/v1/inventory/reserve`: Atomically reserve stock units.
-- `POST /api/v1/inventory/release`: Release reserved stock units back to inventory.
-- `PUT /api/v1/inventory/stock`: Adjust stock level for SKU.
-
-### Cart Service (`/api/v1/cart`)
-- `GET /api/v1/cart`: Retrieve authenticated user's active cart.
-- `POST /api/v1/cart/items`: Add product item to cart.
-- `PUT /api/v1/cart/items/{itemId}`: Update item quantity.
-- `DELETE /api/v1/cart/items/{itemId}`: Remove line item from cart.
-- `DELETE /api/v1/cart`: Clear all cart contents.
-
-### Order Service (`/api/v1/orders`)
-- `POST /api/v1/orders`: Place order using active cart contents or explicit items.
-- `GET /api/v1/orders`: Paginated order history for authenticated customer.
-- `GET /api/v1/orders/{id}`: Detailed order snapshot with line items and status history.
-- `POST /api/v1/orders/{id}/cancel`: Cancel order and trigger inventory release.
-- `GET /api/v1/orders/admin`: Paginated overview of all orders across platform (Admin only).
-- `PUT /api/v1/orders/admin/{id}/status`: Advance order along the state machine pipeline (Admin only).
+> **Pro-Tip for Live Demos**: Use the **1-Click Demo Accounts** button in the top navigation bar to switch between Administrator and Customer accounts without typing credentials.
 
 ---
 
-## 8. Automated End-to-End Verification Script
+## 8. Step-by-Step Live Client Demonstration Playbook
 
-A PowerShell script `test_e2e_flow.ps1` is included in the workspace root to execute the full 13-stage lifecycle in one command:
+Follow this 5-minute structured demonstration during client presentations:
+
+### Step 1: System Topology & Infrastructure Health (1 Minute)
+1. Open the storefront at `http://localhost:3000`.
+2. Highlight the dark-mode aesthetic, responsiveness, and top-tier typography.
+3. Scroll to the footer: point out the **Live System Status Bar** (`● All Microservices Operational · 99.99% Uptime SLA`).
+4. Explain the architecture: 6 isolated Spring Boot 3 microservices, Spring Cloud Gateway, Redis distributed cache, and 5 isolated MySQL schemas running in Docker containers.
+
+### Step 2: Customer Catalog & Redis Speed (1 Minute)
+1. Click through category filters (*Laptops & Computers*, *Audio & Acoustics*, *Smartphones & Mobile*).
+2. Click on the flagship **TitanBook Pro 16** card.
+3. Highlight the real-time stock indicator: `50 units available` in glowing emerald.
+4. Point out that product details are backed by Redis distributed in-memory caching for sub-millisecond response times.
+
+### Step 3: Shopping Cart & Checkout Saga (1 Minute)
+1. In the top navbar, click **Demo Accounts** $\rightarrow$ select **Customer Account** (`user@ecommerce.com`).
+2. Click **Add to Cart** on the TitanBook Pro 16.
+3. Open the **Cart** in the navigation bar. Show the calculated price and subtotal.
+4. Click **Proceed to Checkout**, fill in a sample shipping address, and submit.
+5. Demonstrate the immediate transition to the **Order Confirmation** page with generated order number (e.g. `ORD-20260921-XXXXXX`).
+
+### Step 4: Admin Telemetry & Real-Time Stock Decrement (1 Minute)
+1. In the top navbar, click **Customer** $\rightarrow$ select **Admin Console** (`admin@ecommerce.com`).
+2. Navigate to **Admin Console** $\rightarrow$ **Inventory Stock** tab.
+3. Show the SKU `LAP-TITAN-16`: stock has atomically decremented from **50 to 49** units!
+4. Navigate to the **Orders Stream** tab: highlight the newly placed customer order.
+5. Click **Advance Status** to transition the order from `CONFIRMED` $\rightarrow$ `PROCESSING`.
+
+### Step 5: Compensating Transaction & Restock Verification (1 Minute)
+1. Switch back to the **Customer Account** $\rightarrow$ go to **My Orders**.
+2. Click **Cancel Order** on the active order.
+3. Switch to **Admin Console** $\rightarrow$ **Inventory Stock**: Show that stock for `LAP-TITAN-16` has automatically been restored to **50 units** via the compensating event mechanism!
+4. Conclude the demo by highlighting the clean, modular code structure, complete test suite, and Docker one-click orchestration.
+
+---
+
+## 9. Automated Verification Script
+
+To run an automated 13-stage test verifying every API endpoint and business rule:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\test_e2e_flow.ps1
 ```
 
-### Stages Verified by Script:
-1. Dynamic User Registration
-2. Customer JWT Authentication
-3. Admin JWT Authentication & Role Verification
-4. Product Catalog & Category Queries
-5. Inventory Verification via Gateway
-6. Add Item to Shopping Cart
-7. Shopping Cart Inspection & Price Subtotal Calculation
-8. Checkout & Order Placement (`ORD-YYYYMMDD-XXXXXX`)
-9. Inventory Stock Decrement Verification
-10. Automatic Cart Clearing Post-Checkout
-11. Customer Order History Inspection
-12. Admin Order Status State Machine Transition (`PROCESSING`)
-13. Order Cancellation & Stock Restock Verification
+---
+
+## 10. Complete API Endpoint Reference
+
+All endpoints are accessed through the unified Ingress Gateway at **`http://localhost:8080`**:
+
+### Auth Service (`/api/v1/auth`)
+- `POST /api/v1/auth/register`: Register new customer account.
+- `POST /api/v1/auth/login`: Authenticate and receive JWT tokens.
+- `POST /api/v1/auth/refresh`: Exchange refresh token for a new access token.
+
+### Product Service (`/api/v1/products` & `/api/v1/categories`)
+- `GET /api/v1/products`: Paginated catalog with keyword search, price filters, and sorting.
+- `GET /api/v1/products/{id}`: Detailed product snapshot (Redis-cached).
+- `POST /api/v1/products`: Create catalog product (Admin).
+- `PUT /api/v1/products/{id}`: Update product details (Admin).
+- `DELETE /api/v1/products/{id}`: Soft/hard delete product (Admin).
+- `GET /api/v1/categories`: Retrieve all categories.
+- `POST /api/v1/categories`: Create new category (Admin).
+
+### Inventory Service (`/api/v1/inventory`)
+- `GET /api/v1/inventory/{sku}`: Query real-time availability for product SKU.
+- `POST /api/v1/inventory/check`: Validate if requested quantity is in stock.
+- `POST /api/v1/inventory/reserve`: Atomically reserve stock units.
+- `POST /api/v1/inventory/release`: Release reserved stock units back to available inventory.
+- `PUT /api/v1/inventory/stock`: Adjust physical stock level for SKU (Admin).
+
+### Cart Service (`/api/v1/cart`)
+- `GET /api/v1/cart`: Retrieve authenticated user's active cart session.
+- `POST /api/v1/cart/items`: Add line item to cart.
+- `PUT /api/v1/cart/items/{itemId}`: Update line item quantity.
+- `DELETE /api/v1/cart/items/{itemId}`: Remove item from cart.
+- `DELETE /api/v1/cart`: Purge active cart contents.
+
+### Order Service (`/api/v1/orders`)
+- `POST /api/v1/orders`: Orchestrate checkout, stock lock, and order generation.
+- `GET /api/v1/orders`: Paginated order history for authenticated customer.
+- `GET /api/v1/orders/{id}`: Detailed order snapshot with line items and status history.
+- `POST /api/v1/orders/{id}/cancel`: Cancel order and trigger automated inventory restock.
+- `GET /api/v1/orders/admin`: Paginated overview of all orders across platform (Admin).
+- `PUT /api/v1/orders/admin/{id}/status`: Advance order along FSM lifecycle (Admin).

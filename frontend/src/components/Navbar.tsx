@@ -77,80 +77,89 @@ export const Navbar: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          {/* Quick Demo Login Switcher */}
-          {!isAuthenticated && (
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => setDemoMenuOpen((prev) => !prev)}
-                className="btn btn-secondary btn-sm"
-                style={{
-                  padding: '0.45rem 0.75rem',
-                  fontSize: '0.8rem',
-                  borderColor: 'rgba(129, 140, 248, 0.4)',
-                  color: '#818cf8',
-                  background: 'rgba(79, 70, 229, 0.08)',
-                }}
-                title="Quick 1-Click Demo Login"
-              >
-                <Sparkles size={14} />
-                <span style={{ fontWeight: 600 }}>Demo Login</span>
-              </button>
+          {/* 1-Click Demo Account Switcher (For Live Client Demos) */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setDemoMenuOpen((prev) => !prev)}
+              className="btn btn-secondary btn-sm"
+              style={{
+                padding: '0.42rem 0.75rem',
+                fontSize: '0.78rem',
+                borderColor: 'rgba(129, 140, 248, 0.35)',
+                color: '#818cf8',
+                background: 'rgba(79, 70, 229, 0.08)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+              }}
+              title="Switch demo profile instantly"
+            >
+              <Sparkles size={13} />
+              <span style={{ fontWeight: 600 }}>{isAuthenticated ? (isAdmin ? 'Admin' : 'Customer') : 'Demo Accounts'}</span>
+            </button>
 
-              {demoMenuOpen && (
-                <div
-                  className="card"
+            {demoMenuOpen && (
+              <div
+                className="card"
+                style={{
+                  position: 'absolute',
+                  top: '120%',
+                  right: 0,
+                  width: '270px',
+                  padding: '0.75rem',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+                  zIndex: 100,
+                  border: '1px solid var(--border-strong)',
+                  background: 'var(--bg-surface)',
+                }}
+              >
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Switch Role / Account
+                </div>
+                <button
+                  disabled={loggingIn}
+                  onClick={() => handleQuickLogin('admin@ecommerce.com', 'Admin123!')}
+                  className="btn btn-secondary btn-sm"
                   style={{
-                    position: 'absolute',
-                    top: '110%',
-                    right: 0,
-                    width: '260px',
-                    padding: '0.75rem',
-                    boxShadow: 'var(--shadow-lg)',
-                    zIndex: 100,
-                    border: '1px solid var(--border-strong)',
-                    background: 'var(--bg-card)',
+                    width: '100%',
+                    justifyContent: 'flex-start',
+                    marginBottom: '0.4rem',
+                    padding: '0.55rem 0.65rem',
+                    background: isAdmin ? 'rgba(79, 70, 229, 0.18)' : undefined,
+                    borderColor: isAdmin ? '#818cf8' : undefined,
                   }}
                 >
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    1-Click Demo Accounts
+                  <Shield size={14} color="#818cf8" />
+                  <div style={{ textAlign: 'left', lineHeight: 1.25, flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#fff' }}>
+                      Admin Console {isAdmin && '✓'}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>admin@ecommerce.com</div>
                   </div>
-                  <button
-                    disabled={loggingIn}
-                    onClick={() => handleQuickLogin('admin@ecommerce.com', 'Admin123!')}
-                    className="btn btn-secondary btn-sm"
-                    style={{
-                      width: '100%',
-                      justifyContent: 'flex-start',
-                      marginBottom: '0.4rem',
-                      padding: '0.5rem 0.6rem',
-                    }}
-                  >
-                    <Shield size={14} color="#818cf8" />
-                    <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>Admin Portal</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>admin@ecommerce.com</div>
+                </button>
+                <button
+                  disabled={loggingIn}
+                  onClick={() => handleQuickLogin('user@ecommerce.com', 'User123!')}
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'flex-start',
+                    padding: '0.55rem 0.65rem',
+                    background: !isAdmin && isAuthenticated ? 'rgba(16, 185, 129, 0.15)' : undefined,
+                    borderColor: !isAdmin && isAuthenticated ? 'var(--emerald)' : undefined,
+                  }}
+                >
+                  <UserIcon size={14} color="var(--emerald)" />
+                  <div style={{ textAlign: 'left', lineHeight: 1.25, flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#fff' }}>
+                      Customer Account {!isAdmin && isAuthenticated && '✓'}
                     </div>
-                  </button>
-                  <button
-                    disabled={loggingIn}
-                    onClick={() => handleQuickLogin('user@ecommerce.com', 'User123!')}
-                    className="btn btn-secondary btn-sm"
-                    style={{
-                      width: '100%',
-                      justifyContent: 'flex-start',
-                      padding: '0.5rem 0.6rem',
-                    }}
-                  >
-                    <UserIcon size={14} color="var(--emerald)" />
-                    <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>Customer Account</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>user@ecommerce.com</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>user@ecommerce.com</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Cart Trigger */}
           <Link to="/cart" className="btn btn-secondary cart-badge-container" style={{ padding: '0.5rem 0.85rem' }}>
