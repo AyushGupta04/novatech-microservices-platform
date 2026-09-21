@@ -57,8 +57,8 @@ export const Login: React.FC = () => {
           >
             <LogIn size={24} />
           </div>
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>Welcome Back</h2>
-          <p className="text-muted text-sm">Sign in to your Novamart account</p>
+          <h1 style={{ fontSize: '1.75rem', marginBottom: '0.4rem' }}>Welcome Back</h1>
+          <p className="text-muted text-sm">Sign in to your NovaTech account</p>
         </div>
 
         {error && (

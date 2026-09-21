@@ -56,7 +56,7 @@ export const Footer: React.FC = () => {
               <div className="brand-icon">
                 <ShoppingBag size={18} />
               </div>
-              <span>Novamart</span>
+              <span>NovaTech</span>
             </Link>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.6', marginBottom: '1.25rem' }}>
               High-performance engineering workstations, studio audio, and next-gen peripherals. Engineered for power users and creators.
@@ -241,7 +241,7 @@ export const Footer: React.FC = () => {
           }}
         >
           <div>
-            © {new Date().getFullYear()} Novamart Technologies Inc. All rights reserved. · Privacy · Terms · Security
+            © {new Date().getFullYear()} NovaTech Technologies Inc. All rights reserved. · Privacy · Terms · Security
           </div>
 
           <div

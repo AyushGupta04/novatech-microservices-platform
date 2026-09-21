@@ -71,7 +71,7 @@ export const Register: React.FC = () => {
             <UserPlus size={24} />
           </div>
           <h2 style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>Create an Account</h2>
-          <p className="text-muted text-sm">Join Novamart for fast and secure enterprise shopping</p>
+          <p className="text-muted text-sm">Join NovaTech for fast and secure enterprise shopping</p>
         </div>
 
         {error && (

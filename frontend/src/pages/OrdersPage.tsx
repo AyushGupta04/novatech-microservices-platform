@@ -93,7 +93,7 @@ export const OrdersPage: React.FC = () => {
         <div className="card flex-center" style={{ minHeight: '40vh', flexDirection: 'column', gap: '1rem', padding: '3rem' }}>
           <ShoppingBag size={42} color="var(--text-dim)" />
           <h2>No Orders Yet</h2>
-          <p className="text-muted">You haven't placed any orders with Novamart yet.</p>
+          <p className="text-muted">You haven't placed any orders with NovaTech yet.</p>
           <Link to="/products" className="btn btn-primary">
             Explore Hardware Catalog
           </Link>

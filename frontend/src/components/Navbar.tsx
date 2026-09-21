@@ -42,7 +42,7 @@ export const Navbar: React.FC = () => {
             <div className="brand-icon">
               <ShoppingBag size={18} />
             </div>
-            <span>Novamart</span>
+            <span>NovaTech</span>
           </Link>
 
           <nav className="nav-links">
